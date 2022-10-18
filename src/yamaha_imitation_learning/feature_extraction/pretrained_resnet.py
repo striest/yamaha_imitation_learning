@@ -9,14 +9,14 @@ class PretrainedResnetFeatureExtractor:
     """
     Get features from images/lidar maps via a pretrained resnet
     """
-    def __init__(self, D=32, C=3, project=True): 
+    def __init__(self, D=32, C=3, project=True, net=None, device='cpu'): 
         """
         Args:
             D: The dimension of the output embedding
             C: The number of input channels
             project: If false, don't project output and just use net output
         """
-        net = models.resnet50(pretrained=True)
+        net = models.resnet50(pretrained=True) if net is None else net
         modules = list(net.children())[:-1]
 
         self.net = torch.nn.Sequential(*modules)
@@ -28,16 +28,23 @@ class PretrainedResnetFeatureExtractor:
 
         self.project = project
         self.proj = torch.nn.Linear(self.net_D, D)
+        self.device = device
 
     def get_features(self, img):
-        with torch.no_grad():
-            _x = img.unsqueeze(0)
-            _x = self.inp_proj.forward(_x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
-            _x = self.net.forward(_x)[:, :, 0, 0]
-            if self.project:
-                _x = self.proj.forward(_x)
+        _x = img.unsqueeze(0)
+        _x = self.inp_proj.forward(_x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
+        _x = self.net.forward(_x)[:, :, 0, 0]
+        if self.project:
+            _x = self.proj.forward(_x)
 
         return _x[0]
+
+    def to(self, device):
+        self.device = device
+        self.net = self.net.to(device)
+        self.inp_proj = self.inp_proj.to(device)
+        self.proj = self.proj.to(device)
+        return self
 
 if __name__ == '__main__':
     torch.set_printoptions(sci_mode=False)
