@@ -8,7 +8,7 @@ def get_vel_steer(batch):
     """
     grab velocity and steering from a dataset entry
     """
-    vels = torch.linalg.norm(batch['traj'][:, 7:10], dim=-1)
+    vels = torch.linalg.norm(batch['traj'][..., 7:10], dim=-1)
     steers = batch['steer'] * (30./415.) * (np.pi / 180.)
 
     return torch.stack([vels, steers], dim=-1)

@@ -18,8 +18,8 @@ class PretrainedResnetFeatureExtractor:
         """
         net = models.resnet50(pretrained=True) if net is None else net
         modules = list(net.children())[:-1]
-
         self.net = torch.nn.Sequential(*modules)
+
         self.net_D = self.net.forward(torch.rand(1, 3, 244, 244)).shape[-3]
         self.D = D if project else self.net_D
 
