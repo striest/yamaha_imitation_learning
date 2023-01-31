@@ -53,14 +53,15 @@ if __name__ == '__main__':
         t += 1
 
     #do some feature post-processing (namely SVD)
-#    U, S, V = torch.linalg.svd(feat_seq, full_matrices=False)
-#    feat_seq = U @ torch.diag(S)
-#    feat_seq = feat_seq[:, :50]
+    feat_seq -= feat_seq.mean(dim=0)
+    U, S, V = torch.linalg.svd(feat_seq, full_matrices=False)
+    feat_seq = U @ torch.diag(S)
+    feat_seq = feat_seq[:, :50]
 
     #also try the dumb way to check
-    stds = feat_seq.std(dim=0)
-    idxs = torch.argsort(stds, descending=True)
-    feat_seq = feat_seq[:, idxs[:50]]
+#    stds = feat_seq.std(dim=0)
+#    idxs = torch.argsort(stds, descending=True)
+#    feat_seq = feat_seq[:, idxs[:50]]
 
     fig, axs = plt.subplots(1, 2, figsize=(18, 9))
     axs[0].imshow(img.permute(1, 2, 0)[..., [2, 1, 0]].cpu())
