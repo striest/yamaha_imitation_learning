@@ -1,0 +1,45 @@
+experiment:
+    save_to: /home/atv/Desktop/experiments/yamaha_imitation_learning
+    name: resnet_byol_bc_fine_tune
+    device: cuda
+    epochs: 10
+    steps_per_epoch: -1
+    save_every: 1
+    eval_every: 1
+
+algo:
+    type: BCTrainer
+    params:
+        batch_size: 32
+
+train_dataset:
+    type: BCDataset
+    params:
+        bag_fp: /home/atv/Desktop/datasets/yamaha_maxent_irl/big_gridmaps/rosbags_train_throttle
+        preprocess_fp: /home/atv/Desktop/datasets/yamaha_maxent_irl/big_gridmaps/torch_train_throttle_h75
+        map_features_topic: /local_gridmap
+        odom_topic: /integrated_to_init
+        image_topic: /multisense/left/image_rect_color
+        horizon: 75
+
+test_dataset:
+    type: BCDataset
+    params:
+        bag_fp: /home/atv/Desktop/datasets/yamaha_maxent_irl/big_gridmaps/rosbags_test_throttle
+        preprocess_fp: /home/atv/Desktop/datasets/yamaha_maxent_irl/big_gridmaps/torch_test_throttle_h75
+        map_features_topic: /local_gridmap
+        odom_topic: /integrated_to_init
+        image_topic: /multisense/left/image_rect_color
+        horizon: 75
+
+network:
+    type: ResnetFPV
+    base_net: /home/atv/physics_atv_ws/src/control/yamaha_imitation_learning/models/resnet_byol_25000.pt
+    params:
+        nf: 32
+        mlp_hiddens: [32, ]
+        freeze_backbone: False
+
+netopt:
+    type: Adam
+    params: {}
