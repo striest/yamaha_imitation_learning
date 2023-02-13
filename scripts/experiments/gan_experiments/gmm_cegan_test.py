@@ -1,0 +1,178 @@
+import torch
+import numpy as np
+import matplotlib.pyplot as plt
+
+from numpy import pi
+from torch import sin, cos, tan
+
+from maxent_irl_costmaps.networks.mlp import MLP
+
+"""
+Replicate the GMM experiment from the lsgan paper
+"""
+
+def make_gmm(r=2, n=4, std=0.02):
+    th = torch.arange(n) * 2*pi/n
+    xs = r * th.cos()
+    ys = r * th.sin()
+
+    gmm = []
+    for x, y in zip(xs, ys):
+        loc = torch.tensor([x, y])
+        scale = torch.diag(torch.tensor([std] * 2))
+        dist = torch.distributions.MultivariateNormal(loc=loc, covariance_matrix=scale)
+        gmm.append((1/n, dist))
+
+    return gmm
+
+def gmm_likelihood(gmm, x):
+    """
+    Compute the likelihood of a batch of samples under the GMM
+    lik = sum_c[p(c) * p(x|c)]
+    """
+    lik = torch.zeros(x.shape[0])
+    for weight, dist in gmm:
+        lik += weight * dist.log_prob(x).exp()
+
+    return lik
+
+def plot_gmm(gmm, fig=None, axs=None):
+    """
+    make a heatmap of the gmm likelihood
+    """
+    if fig is None or axs is None:
+        fig, axs = plt.subplots(1, 1, figsize=(8, 8))
+
+    xs = [x[1].loc[0] for x in gmm]
+    ys = [x[1].loc[1] for x in gmm]
+    xmin = min(xs) - 1.
+    ymin = min(ys) - 1.
+    xmax = max(xs) + 1.
+    ymax = max(ys) + 1.
+
+    n = 200
+    gx = torch.linspace(xmin, xmax, n)
+    gy = torch.linspace(ymin, ymax, n)
+    gx, gy = torch.meshgrid(gx, gy, indexing='xy')
+    gs = torch.stack([gx, gy], dim=-1)
+
+    lik = gmm_likelihood(gmm, gs.view(n*n, -1)).view(n, n, -1)
+
+    axs.imshow(lik, origin='lower', extent = (xmin, xmax, ymin, ymax))
+    return fig, axs
+
+def plot_discriminator_score(disc, xs, fa, fb, fig=None, axs=None):
+    if fig is None or axs is None:
+        fig, axs = plt.subplots(1, 1, figsize=(8, 8))
+
+    xmin = xs[:, 0].min()
+    xmax = xs[:, 0].max()
+    ymin = xs[:, 1].min()
+    ymax = xs[:, 1].max()
+
+    n = 200
+    gx = torch.linspace(xmin, xmax, n)
+    gy = torch.linspace(ymin, ymax, n)
+    gx, gy = torch.meshgrid(gx, gy, indexing='xy')
+    gs = torch.stack([gx, gy], dim=-1)
+
+    gs_f1 = fa * (fb * gs.unsqueeze(-1)).sin()
+    gs_f2 = fa * (fb * gs.unsqueeze(-1)).sin()
+    gs2 = torch.stack([gs_f1, gs_f2], dim=-1).view(batch_size, -1)
+
+    lik = disc.forward(gs2.view(n*n, -1)).view(n, n, -1).sigmoid()
+
+    axs.imshow(lik, origin='lower', extent = (xmin, xmax, ymin, ymax))
+    return fig, axs
+
+def sample_gmm(gmm, n=100):
+    class_probs = torch.tensor([x[0] for x in gmm])
+    class_dist = torch.distributions.Multinomial(logits=class_probs)
+    all_samples = torch.stack([x[1].sample((n, )) for x in gmm], dim=1)
+    classes = class_dist.sample((n, )).argmax(dim=-1)
+    samples = all_samples[torch.arange(n), classes]
+    return samples
+
+if __name__ == '__main__':
+    gmm = make_gmm(n=8, std=0.01, r=1.0)
+
+#    plot_gmm(gmm)
+#    samples = sample_gmm(gmm)
+#    plt.scatter(samples[:, 0], samples[:, 1], s=1, c='r')
+#    plt.show()
+
+    ## make generator ##
+    zn = 256
+    generator = MLP(insize=zn, outsize=2, hiddens=[128, 128], hidden_activation=torch.nn.ReLU)
+#    generator_opt = torch.optim.Adam(generator.parameters(), lr=1e-4, betas=(0.5, 0.999))
+    generator_opt = torch.optim.Adam(generator.parameters())
+#    generator_opt = torch.optim.RMSprop(generator.parameters())
+
+    nf = 20
+    ## make discriminator ##
+    discriminator = MLP(insize=2 * 2 * nf, outsize=1, hiddens=[128, 128], hidden_activation=torch.nn.ReLU)
+#    discriminator_opt = torch.optim.Adam(discriminator.parameters(), lr=5e-5, betas=(0.5, 0.999))
+    discriminator_opt = torch.optim.Adam(discriminator.parameters())
+#    discriminator_opt = torch.optim.RMSprop(discriminator.parameters())
+
+    ## idk fourier features I guess ##
+    fa = torch.randn(nf).view(1, 1, nf)
+    fb = torch.randn(nf).view(1, 1, nf) * 2 * pi
+
+    n_steps = 50000
+    batch_size = 128
+    for i in range(n_steps+1):
+        z = torch.randn(batch_size, zn)
+        fake_samples = generator.forward(z)
+
+#        fake_samples = torch.randn(batch_size, 2) * 2.
+#        fake_samples = (torch.rand(batch_size, 2) - 0.5) * 4.
+
+        real_samples = sample_gmm(gmm, batch_size)
+
+        fake_samples_f1 = fa * (fb * fake_samples.unsqueeze(-1)).sin()
+        fake_samples_f2 = fa * (fb * fake_samples.unsqueeze(-1)).cos()
+        fake_samples2 = torch.stack([fake_samples_f1, fake_samples_f2], dim=-1).view(batch_size, -1)
+
+        real_samples_f1 = fa * (fb * real_samples.unsqueeze(-1)).sin()
+        real_samples_f2 = fa * (fb * real_samples.unsqueeze(-1)).cos()
+        real_samples2 = torch.stack([real_samples_f1, real_samples_f2], dim=-1).view(batch_size, -1)
+
+        fake_sample_logits = discriminator.forward(fake_samples2)
+        real_sample_logits = discriminator.forward(real_samples2)
+
+        fake_sample_probs = fake_sample_logits.sigmoid()
+        real_sample_probs = real_sample_logits.sigmoid()
+
+        ## discriminator update is min[-log(D(x)) - log(1 - D(G(z)))] ##
+        if i % 2 == 0:
+            disc_objective = -1 * (real_sample_probs.log() + (1 - fake_sample_probs).log())
+            loss = disc_objective.mean()
+            discriminator_opt.zero_grad()
+            loss.backward()
+            discriminator_opt.step()
+        ## generator update is min[log(1 - D(G(z)))] ##
+        else:
+            gen_objective = (1 - fake_sample_probs).log()
+            loss = gen_objective.mean()
+            generator_opt.zero_grad()
+            loss.backward()
+            generator_opt.step()
+
+        ## log ##
+        print('{}/{}'.format(i, n_steps))
+        print('Avg. Disc. fake probs: {:.4f}'.format(fake_sample_probs.mean()))
+        print('Avg. Disc. real probs: {:.4f}'.format(real_sample_probs.mean()))
+
+        ## visualize ##
+        if i % 10000 == 0:
+            with torch.no_grad():
+                fig, axs = plt.subplots(1, 2, figsize=(16, 8))
+                plot_gmm(gmm, fig, axs[0])
+                plot_discriminator_score(discriminator, torch.cat([fake_samples, real_samples], dim=0), fa, fb, fig, axs[1])
+                for ax in axs:
+                    ax.scatter(fake_samples.detach().cpu()[:, 0], fake_samples.detach().cpu()[:, 1], s=1, c='r', label='generator')
+                    ax.scatter(real_samples.detach().cpu()[:, 0], real_samples.detach().cpu()[:, 1], s=1, c='b', label='gmm')
+                    ax.legend()
+
+                plt.show()
